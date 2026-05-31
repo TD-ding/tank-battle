@@ -172,9 +172,9 @@ const W = COLS * TILE;
 const H = ROWS * TILE;
 const TANK_SIZE = 28;
 const BULLET_SIZE = 6;
-const BULLET_SPEED = 5;
-const PLAYER_SPEED = 2.5;
-const ENEMY_SPEED = 1.5;
+const BULLET_SPEED = 300;
+const PLAYER_SPEED = 150;
+const ENEMY_SPEED = 90;
 const ENEMY_SHOOT_INTERVAL = 1500;
 const MAX_ENEMIES = 4;
 const TOTAL_ENEMIES = 20;
@@ -355,6 +355,7 @@ class Tank {
     this.speed = isPlayer ? PLAYER_SPEED : ENEMY_SPEED;
     this.cooldown = 0;
     this.shootInterval = isPlayer ? 300 : ENEMY_SHOOT_INTERVAL;
+    this.shootVariation = isPlayer ? 0 : 0.6;
     this.invincible = 0;
     // AI
     this.aiDirTimer = 0;
@@ -362,10 +363,11 @@ class Tank {
     this.triedDirs = [];
   }
 
-  move(dir) {
+  move(dir, dt) {
     this.dir = dir;
-    let nx = this.x + DX[dir] * this.speed;
-    let ny = this.y + DY[dir] * this.speed;
+    const step = this.speed * dt;
+    let nx = this.x + DX[dir] * step;
+    let ny = this.y + DY[dir] * step;
 
     // 坦克在转向时对齐网格
     if (dir === DIR.UP || dir === DIR.DOWN) {
@@ -379,8 +381,8 @@ class Tank {
       this.y = ny;
     } else {
       // 尝试不snap
-      nx = this.x + DX[dir] * this.speed;
-      ny = this.y + DY[dir] * this.speed;
+      nx = this.x + DX[dir] * step;
+      ny = this.y + DY[dir] * step;
       if (canMoveTo(nx, ny, TANK_SIZE, this)) {
         this.x = nx;
         this.y = ny;
@@ -397,7 +399,7 @@ class Tank {
       const myBullets = bullets.filter(b => b.alive && b.owner === 'enemy' && b.tankId === this);
       if (myBullets.length >= 1) return;
     }
-    this.cooldown = this.shootInterval;
+    this.cooldown = this.shootInterval * (1 + (Math.random() - 0.5) * this.shootVariation);
     const bx = this.x + DX[this.dir] * (TANK_SIZE / 2 + 2);
     const by = this.y + DY[this.dir] * (TANK_SIZE / 2 + 2);
     bullets.push({
@@ -416,8 +418,10 @@ class Tank {
 
   draw() {
     if (!this.alive) return;
-    // 无敌闪烁
-    if (this.invincible > 0 && Math.floor(this.invincible / 100) % 2 === 0) return;
+    // 无敌闪烁：半透明交替
+    if (this.invincible > 0) {
+      ctx.globalAlpha = Math.floor(this.invincible / 80) % 2 === 0 ? 0.3 : 0.85;
+    }
     const x = this.x - TANK_SIZE / 2;
     const y = this.y - TANK_SIZE / 2;
     ctx.save();
@@ -444,6 +448,7 @@ class Tank {
     ctx.fillRect(x + TANK_SIZE / 2 - 2, y - 2, 4, TANK_SIZE / 2 + 2);
 
     ctx.restore();
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -520,22 +525,26 @@ function spawnEnemy() {
   if (enemiesSpawned >= TOTAL_ENEMIES) return;
   if (enemies.filter(e => e.alive).length >= MAX_ENEMIES) return;
 
-  const sp = SPAWN_POINTS[enemiesSpawned % SPAWN_POINTS.length];
-  // 确保生成点没有其他坦克
-  if (!canMoveTo(sp.x, sp.y, TANK_SIZE, null)) return;
-
-  const dir = DIR.DOWN;
-  const enemy = new Tank(sp.x, sp.y, dir, false);
-  enemies.push(enemy);
-  enemiesSpawned++;
+  // 尝试所有出生点，找到一个空闲的
+  for (let i = 0; i < SPAWN_POINTS.length; i++) {
+    const idx = (enemiesSpawned + i) % SPAWN_POINTS.length;
+    const sp = SPAWN_POINTS[idx];
+    if (canMoveTo(sp.x, sp.y, TANK_SIZE, null)) {
+      const enemy = new Tank(sp.x, sp.y, DIR.DOWN, false);
+      enemies.push(enemy);
+      enemiesSpawned++;
+      return;
+    }
+  }
 }
 
 // ========== 碰撞检测 ==========
-function updateBullets() {
+function updateBullets(dt) {
   for (const b of bullets) {
     if (!b.alive) continue;
-    b.x += DX[b.dir] * BULLET_SPEED;
-    b.y += DY[b.dir] * BULLET_SPEED;
+    const step = BULLET_SPEED * dt;
+    b.x += DX[b.dir] * step;
+    b.y += DY[b.dir] * step;
 
     // 出界
     if (b.x < 0 || b.x > W || b.y < 0 || b.y > H) {
@@ -649,7 +658,7 @@ function updateEnemyAI(enemy, dt) {
   // 碰墙检测：尝试移动，如果移动失败则立刻换方向
   const oldX = enemy.x;
   const oldY = enemy.y;
-  enemy.move(enemy.dir);
+  enemy.move(enemy.dir, dt);
   const stuck = (enemy.x === oldX && enemy.y === oldY);
 
   if (stuck) {
@@ -850,10 +859,10 @@ function gameLoop(timestamp) {
     // 玩家输入
     if (player && player.alive) {
       player.update(dt);
-      if (keys['ArrowUp'] || keys['KeyW']) { player.move(DIR.UP); }
-      else if (keys['ArrowDown'] || keys['KeyS']) { player.move(DIR.DOWN); }
-      else if (keys['ArrowLeft'] || keys['KeyA']) { player.move(DIR.LEFT); }
-      else if (keys['ArrowRight'] || keys['KeyD']) { player.move(DIR.RIGHT); }
+      if (keys['ArrowUp'] || keys['KeyW']) { player.move(DIR.UP, dt); }
+      else if (keys['ArrowDown'] || keys['KeyS']) { player.move(DIR.DOWN, dt); }
+      else if (keys['ArrowLeft'] || keys['KeyA']) { player.move(DIR.LEFT, dt); }
+      else if (keys['ArrowRight'] || keys['KeyD']) { player.move(DIR.RIGHT, dt); }
 
       if (keys['Space']) { player.shoot(); }
     }
@@ -871,7 +880,7 @@ function gameLoop(timestamp) {
     }
 
     // 更新子弹
-    updateBullets();
+    updateBullets(dt);
 
     // 清理死亡敌人
     lastCleanup += dt;
@@ -925,6 +934,7 @@ document.addEventListener('keydown', (e) => {
     } else {
       gameState = 'playing';
       pauseOverlay.style.display = 'none';
+      lastTime = 0; // 重置帧时间，避免恢复时dt跳变
     }
   }
   // 防止方向键和空格滚动页面
