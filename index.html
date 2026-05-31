@@ -385,6 +385,14 @@ let explosions = [];
 let powerups = [];
 let keys = {};
 
+// ========== 最高分 ==========
+function getHighScore() {
+  try { return parseInt(localStorage.getItem('tankBattleHighScore') || '0'); } catch (e) { return 0; }
+}
+function setHighScore(s) {
+  try { if (s > getHighScore()) localStorage.setItem('tankBattleHighScore', s); } catch (e) {}
+}
+
 // ========== 工具函数 ==========
 function tileCenter(col, row) {
   return { x: col * TILE + TILE / 2, y: row * TILE + TILE / 2 };
@@ -510,8 +518,10 @@ function checkPowerupCollision() {
     }
   }
 }
+let nextTankId = 0;
 class Tank {
   constructor(x, y, dir, isPlayer) {
+    this.id = nextTankId++;
     this.x = x;
     this.y = y;
     this.dir = dir;
@@ -566,7 +576,7 @@ class Tank {
       const activeBullets = bullets.filter(b => b.alive && b.owner === 'player');
       if (activeBullets.length >= maxB) return;
     } else {
-      const myBullets = bullets.filter(b => b.alive && b.owner === 'enemy' && b.tankId === this);
+      const myBullets = bullets.filter(b => b.alive && b.owner === 'enemy' && b.tankId === this.id);
       if (myBullets.length >= 1) return;
     }
     this.cooldown = this.shootInterval * (1 + (Math.random() - 0.5) * this.shootVariation);
@@ -576,7 +586,7 @@ class Tank {
       x: bx, y: by,
       dir: this.dir,
       owner: this.isPlayer ? 'player' : 'enemy',
-      tankId: this,
+      tankId: this.id,
       alive: true
     });
     playSound('shoot');
@@ -753,6 +763,7 @@ function updateBullets(dt) {
         b.alive = false;
         bullets = bullets.filter(b2 => b2.alive);
         gameState = 'gameover';
+        setHighScore(score);
         explosions.push(new Explosion(b.x, b.y, true));
         playSound('gameover');
         showOverlay('gameover');
@@ -779,6 +790,7 @@ function updateBullets(dt) {
           }
           if (enemiesKilled >= TOTAL_ENEMIES) {
             gameState = 'win';
+            setHighScore(score);
             showOverlay('win');
           }
           break;
@@ -795,6 +807,7 @@ function updateBullets(dt) {
           if (playerLives <= 0) {
             player.alive = false;
             gameState = 'gameover';
+            setHighScore(score);
             playSound('gameover');
             showOverlay('gameover');
           } else {
@@ -1021,6 +1034,7 @@ function showOverlay(type) {
       <div class="subtitle">游戏结束</div>
       <div class="info-box">
         <p class="score-line">最终分数: ${score}</p>
+        <p>最高分: ${getHighScore()}</p>
         <p>消灭敌人: ${enemiesKilled} / ${TOTAL_ENEMIES}</p>
       </div>
       <p class="start-hint">按 Enter 重新开始</p>`;
@@ -1029,6 +1043,7 @@ function showOverlay(type) {
       <div class="win-title">胜利！</div>
       <div class="info-box">
         <p class="score-line">最终分数: ${score}</p>
+        <p>最高分: ${getHighScore()}</p>
         <p>消灭敌人: ${enemiesKilled} / ${TOTAL_ENEMIES}</p>
       </div>
       <p class="start-hint">按 Enter 重新开始</p>`;
@@ -1172,7 +1187,7 @@ document.addEventListener('keydown', (e) => {
     muted = !muted;
   }
   // 防止方向键和空格滚动页面
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Escape'].includes(e.code)) {
     e.preventDefault();
   }
 });
