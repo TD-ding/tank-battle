@@ -900,6 +900,7 @@ function updateEnemyAI(enemy, dt) {
 
 // ========== 绘制地图（离屏缓存） ==========
 function renderMapCache() {
+  if (!map || map.length === 0) return;
   if (!mapCanvas) {
     mapCanvas = document.createElement('canvas');
     mapCanvas.width = W;
@@ -946,6 +947,7 @@ function renderMapCache() {
 }
 
 function drawMap() {
+  if (!map || map.length === 0) return;
   if (mapDirty) renderMapCache();
   ctx.drawImage(mapCanvas, 0, 0);
   // 基地护盾效果
