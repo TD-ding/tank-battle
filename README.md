@@ -27,7 +27,7 @@
 
 ## 技术栈
 
-- HTML5 Canvas
+- HTML5 Canvas（离屏缓存优化渲染）
 - 原生 JavaScript（无框架依赖）
 - CSS3
 
