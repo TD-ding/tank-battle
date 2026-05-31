@@ -542,7 +542,7 @@ class Tank {
     const changedDir = dir !== this.dir;
     this.dir = dir;
     const spd = this.isPlayer && playerSpeedTimer > 0 ? this.speed * 1.5 : this.speed;
-    const step = spd * dt;
+    const step = spd * dt / 1000;
     let nx = this.x + DX[dir] * step;
     let ny = this.y + DY[dir] * step;
 
@@ -724,7 +724,7 @@ function spawnEnemy() {
 function updateBullets(dt) {
   for (const b of bullets) {
     if (!b.alive) continue;
-    const step = BULLET_SPEED * dt;
+    const step = BULLET_SPEED * dt / 1000;
     b.x += DX[b.dir] * step;
     b.y += DY[b.dir] * step;
 
