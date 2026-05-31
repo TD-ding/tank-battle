@@ -30,34 +30,69 @@ canvas {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: rgba(0,0,0,0.8);
+  background: rgba(0,0,0,0.85);
   z-index: 10;
 }
-#overlay h1 {
-  font-size: 42px;
+#overlay .title {
+  font-size: 52px;
+  font-weight: bold;
   color: #f5c842;
-  margin-bottom: 10px;
-  text-shadow: 2px 2px 4px #000;
+  margin-bottom: 8px;
+  text-shadow: 0 0 20px rgba(245,200,66,0.6), 2px 2px 4px #000;
+  letter-spacing: 8px;
 }
-#overlay h2 {
-  font-size: 28px;
+#overlay .subtitle {
+  font-size: 30px;
+  font-weight: bold;
   color: #e74c3c;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  text-shadow: 0 0 12px rgba(231,76,60,0.5), 1px 1px 3px #000;
 }
-#overlay p {
-  font-size: 16px;
+#overlay .win-title {
+  font-size: 52px;
+  font-weight: bold;
+  color: #4a9;
+  margin-bottom: 8px;
+  text-shadow: 0 0 20px rgba(68,170,153,0.6), 2px 2px 4px #000;
+}
+#overlay .info-box {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 16px 28px;
+  margin: 16px 0;
+  text-align: left;
+}
+#overlay .info-box p {
+  font-size: 15px;
   color: #ccc;
-  margin: 4px 0;
+  margin: 5px 0;
+  line-height: 1.6;
+}
+#overlay .info-box span.key {
+  display: inline-block;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 13px;
+  color: #f5c842;
+  margin: 0 2px;
+}
+#overlay .score-line {
+  font-size: 18px;
+  color: #f5c842;
+  margin: 6px 0;
 }
 #overlay .start-hint {
-  margin-top: 30px;
-  font-size: 20px;
+  margin-top: 24px;
+  font-size: 18px;
   color: #f5c842;
-  animation: blink 1s infinite;
+  animation: blink 1.2s infinite;
 }
 @keyframes blink {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  50% { opacity: 0.25; }
 }
 #errorToast {
   position: fixed;
@@ -73,12 +108,38 @@ canvas {
   display: none;
   box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }
+#pauseOverlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: rgba(0,0,0,0.6);
+  z-index: 8;
+}
+#pauseOverlay .pause-text {
+  font-size: 48px;
+  color: #f5c842;
+  text-shadow: 0 0 16px rgba(245,200,66,0.5);
+  letter-spacing: 12px;
+  margin-bottom: 12px;
+}
+#pauseOverlay .pause-hint {
+  font-size: 16px;
+  color: #aaa;
+}
 </style>
 </head>
 <body>
 <div id="gameContainer">
   <canvas id="gameCanvas"></canvas>
   <div id="errorToast"></div>
+  <div id="pauseOverlay">
+    <div class="pause-text">暂停</div>
+    <div class="pause-hint">按 P 或 Esc 继续</div>
+  </div>
   <div id="overlay">
     <h1>坦克大战</h1>
     <p>WASD / 方向键 — 移动</p>
@@ -139,6 +200,7 @@ canvas.width = W;
 canvas.height = H;
 const ctx = canvas.getContext('2d');
 const overlay = document.getElementById('overlay');
+const pauseOverlay = document.getElementById('pauseOverlay');
 const errorToast = document.getElementById('errorToast');
 let errorTimer = null;
 
@@ -223,7 +285,7 @@ function initMap() {
 }
 
 // ========== 游戏状态 ==========
-let gameState = 'menu'; // menu, playing, gameover, win
+let gameState = 'menu'; // menu, playing, paused, gameover, win
 let score = 0;
 let enemiesKilled = 0;
 let enemiesSpawned = 0;
@@ -392,22 +454,57 @@ class Explosion {
     this.y = y;
     this.big = big;
     this.frame = 0;
-    this.maxFrame = big ? 20 : 12;
+    this.maxFrame = big ? 30 : 14;
     this.alive = true;
+    this.particles = [];
+    if (big) {
+      for (let i = 0; i < 12; i++) {
+        const angle = (Math.PI * 2 / 12) * i + Math.random() * 0.3;
+        const speed = 1 + Math.random() * 2.5;
+        this.particles.push({
+          x: this.x, y: this.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          size: 2 + Math.random() * 3,
+          color: THEME.explosion[Math.floor(Math.random() * THEME.explosion.length)]
+        });
+      }
+    }
   }
   update() {
     this.frame++;
+    for (const p of this.particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.96;
+      p.vy *= 0.96;
+    }
     if (this.frame >= this.maxFrame) this.alive = false;
   }
   draw() {
     const progress = this.frame / this.maxFrame;
-    const maxR = this.big ? 24 : 12;
-    const r = maxR * (progress < 0.5 ? progress * 2 : 2 - progress * 2);
+    const maxR = this.big ? 28 : 12;
+    // 主体火焰
+    const r = maxR * (progress < 0.4 ? progress * 2.5 : 2.5 - progress * 2.5);
     ctx.beginPath();
     ctx.arc(this.x, this.y, Math.max(1, r), 0, Math.PI * 2);
-    ctx.fillStyle = progress < 0.3 ? THEME.explosion[0] : progress < 0.6 ? THEME.explosion[1] : THEME.explosion[2];
-    ctx.globalAlpha = 1 - progress;
+    ctx.fillStyle = progress < 0.2 ? THEME.explosion[0] : progress < 0.5 ? THEME.explosion[1] : THEME.explosion[2];
+    ctx.globalAlpha = Math.max(0, 1 - progress * 1.2);
     ctx.fill();
+    // 外圈光晕
+    if (this.big && progress < 0.5) {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, Math.max(1, r * 1.8), 0, Math.PI * 2);
+      ctx.fillStyle = THEME.explosion[1];
+      ctx.globalAlpha = Math.max(0, 0.3 - progress * 0.6);
+      ctx.fill();
+    }
+    // 碎片粒子
+    for (const p of this.particles) {
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.max(0, 1 - progress);
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
     ctx.globalAlpha = 1;
   }
 }
@@ -658,14 +755,33 @@ function drawMap() {
 
 // ========== HUD（Canvas 绘制） ==========
 function drawHUD() {
-  const text = `分数: ${score} | 生命: ${'♥'.repeat(playerLives)} | 敌人剩余: ${TOTAL_ENEMIES - enemiesKilled}`;
-  ctx.font = '14px Courier New, monospace';
+  const remaining = TOTAL_ENEMIES - enemiesKilled;
+  const activeOnField = enemies.filter(e => e.alive).length;
+  const lines = [
+    `分数: ${score}`,
+    `生命: ${'♥'.repeat(playerLives)}`,
+    `敌人: 剩余${remaining} 场上${activeOnField}`,
+    `已消灭: ${enemiesKilled}/${TOTAL_ENEMIES}`,
+  ];
+  ctx.font = '13px Courier New, monospace';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillStyle = THEME.hud.shadow;
-  ctx.fillText(text, 11, 11);
+  const lineH = 18;
+  const padX = 10;
+  const padY = 10;
+  const boxW = 200;
+  const boxH = lines.length * lineH + padY * 2;
+  // 背景框
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(padX - 4, padY - 4, boxW, boxH);
+  ctx.strokeStyle = 'rgba(245,200,66,0.3)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(padX - 4, padY - 4, boxW, boxH);
+  // 文字
   ctx.fillStyle = THEME.hud.color;
-  ctx.fillText(text, 10, 10);
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], padX + 4, padY + i * lineH + 4);
+  }
 }
 
 // ========== Overlay ==========
@@ -673,21 +789,34 @@ function showOverlay(type) {
   overlay.style.display = 'flex';
   if (type === 'menu') {
     overlay.innerHTML = `
-      <h1>坦克大战</h1>
-      <p>WASD / 方向键 — 移动</p>
-      <p>空格键 — 射击</p>
+      <div class="title">坦克大战</div>
+      <div class="info-box">
+        <p><span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> / <span class="key">↑</span> <span class="key">↓</span> <span class="key">←</span> <span class="key">→</span>  移动</p>
+        <p><span class="key">空格</span>  射击</p>
+        <p><span class="key">P</span> / <span class="key">Esc</span>  暂停</p>
+      </div>
+      <div class="info-box">
+        <p>消灭所有敌方坦克即可获胜</p>
+        <p>砖墙可摧毁，钢墙不可摧毁</p>
+        <p>保护基地，基地被毁则失败</p>
+        <p>玩家 3 条生命，复活后短暂无敌</p>
+      </div>
       <p class="start-hint">按 Enter 开始游戏</p>`;
   } else if (type === 'gameover') {
     overlay.innerHTML = `
-      <h2>游戏结束</h2>
-      <p>最终分数: ${score}</p>
-      <p>消灭敌人: ${enemiesKilled} / ${TOTAL_ENEMIES}</p>
+      <div class="subtitle">游戏结束</div>
+      <div class="info-box">
+        <p class="score-line">最终分数: ${score}</p>
+        <p>消灭敌人: ${enemiesKilled} / ${TOTAL_ENEMIES}</p>
+      </div>
       <p class="start-hint">按 Enter 重新开始</p>`;
   } else if (type === 'win') {
     overlay.innerHTML = `
-      <h1 style="color:#4a9">胜利！</h1>
-
-      <p>最终分数: ${score}</p>
+      <div class="win-title">胜利！</div>
+      <div class="info-box">
+        <p class="score-line">最终分数: ${score}</p>
+        <p>消灭敌人: ${enemiesKilled} / ${TOTAL_ENEMIES}</p>
+      </div>
       <p class="start-hint">按 Enter 重新开始</p>`;
   }
 }
@@ -721,11 +850,10 @@ function gameLoop(timestamp) {
     // 玩家输入
     if (player && player.alive) {
       player.update(dt);
-      let moved = false;
-      if (keys['ArrowUp'] || keys['KeyW']) { player.move(DIR.UP); moved = true; }
-      else if (keys['ArrowDown'] || keys['KeyS']) { player.move(DIR.DOWN); moved = true; }
-      else if (keys['ArrowLeft'] || keys['KeyA']) { player.move(DIR.LEFT); moved = true; }
-      else if (keys['ArrowRight'] || keys['KeyD']) { player.move(DIR.RIGHT); moved = true; }
+      if (keys['ArrowUp'] || keys['KeyW']) { player.move(DIR.UP); }
+      else if (keys['ArrowDown'] || keys['KeyS']) { player.move(DIR.DOWN); }
+      else if (keys['ArrowLeft'] || keys['KeyA']) { player.move(DIR.LEFT); }
+      else if (keys['ArrowRight'] || keys['KeyD']) { player.move(DIR.RIGHT); }
 
       if (keys['Space']) { player.shoot(); }
     }
@@ -774,7 +902,7 @@ function gameLoop(timestamp) {
   for (const e of explosions) e.draw();
 
   // HUD
-  if (gameState === 'playing') drawHUD();
+  if (gameState === 'playing' || gameState === 'paused') drawHUD();
 
   requestAnimationFrame(gameLoop);
 }
@@ -787,6 +915,16 @@ document.addEventListener('keydown', (e) => {
       gameState = 'playing';
       overlay.style.display = 'none';
       initGame();
+    }
+  }
+  // 暂停/继续
+  if ((e.code === 'KeyP' || e.code === 'Escape') && (gameState === 'playing' || gameState === 'paused')) {
+    if (gameState === 'playing') {
+      gameState = 'paused';
+      pauseOverlay.style.display = 'flex';
+    } else {
+      gameState = 'playing';
+      pauseOverlay.style.display = 'none';
     }
   }
   // 防止方向键和空格滚动页面
