@@ -187,13 +187,17 @@ const MAP_TEMPLATE = [
 ];
 
 let map = [];
+let waterTiles = [];
 function initMap() {
   map = [];
+  waterTiles = [];
   for (let r = 0; r < ROWS; r++) {
     map[r] = [];
     for (let c = 0; c < COLS; c++) {
       const ch = MAP_TEMPLATE[r]?.[c] || '0';
-      map[r][c] = parseInt(ch);
+      const t = parseInt(ch);
+      map[r][c] = t;
+      if (t === TILE_WATER) waterTiles.push({ r, c });
     }
   }
   mapDirty = true;
@@ -293,6 +297,7 @@ class Tank {
     // AI
     this.aiDirTimer = 0;
     this.aiDirInterval = 2000 + Math.random() * 2000;
+    this.triedDirs = [];
   }
 
   move(dir) {
@@ -326,6 +331,9 @@ class Tank {
     if (this.isPlayer) {
       const activeBullets = bullets.filter(b => b.alive && b.owner === 'player');
       if (activeBullets.length >= MAX_PLAYER_BULLETS) return;
+    } else {
+      const myBullets = bullets.filter(b => b.alive && b.owner === 'enemy' && b.tankId === this);
+      if (myBullets.length >= 1) return;
     }
     this.cooldown = this.shootInterval;
     const bx = this.x + DX[this.dir] * (TANK_SIZE / 2 + 2);
@@ -334,6 +342,7 @@ class Tank {
       x: bx, y: by,
       dir: this.dir,
       owner: this.isPlayer ? 'player' : 'enemy',
+      tankId: this,
       alive: true
     });
   }
@@ -456,6 +465,7 @@ function updateBullets() {
       }
       if (tile === TILE_BASE) {
         b.alive = false;
+        bullets = bullets.filter(b2 => b2.alive);
         gameState = 'gameover';
         explosions.push(new Explosion(b.x, b.y, true));
         showOverlay('gameover');
@@ -513,9 +523,22 @@ function updateBullets() {
 }
 
 function respawnPlayer() {
-  const sp = tileCenter(COLS / 2, ROWS - 5);
+  const spawnPoints = [
+    tileCenter(COLS / 2, ROWS - 5),
+    tileCenter(COLS / 2 - 3, ROWS - 2),
+    tileCenter(COLS / 2 + 3, ROWS - 2),
+  ];
+  for (const sp of spawnPoints) {
+    if (canMoveTo(sp.x, sp.y, TANK_SIZE, null)) {
+      player = new Tank(sp.x, sp.y, DIR.UP, true);
+      player.invincible = INVINCIBLE_TIME;
+      return;
+    }
+  }
+  // 所有候选点都被占，强制在主点复活并给更长无敌时间
+  const sp = spawnPoints[0];
   player = new Tank(sp.x, sp.y, DIR.UP, true);
-  player.invincible = INVINCIBLE_TIME;
+  player.invincible = INVINCIBLE_TIME + 1000;
 }
 
 // ========== 敌人 AI ==========
@@ -532,10 +555,17 @@ function updateEnemyAI(enemy, dt) {
   enemy.move(enemy.dir);
   const stuck = (enemy.x === oldX && enemy.y === oldY);
 
+  if (stuck) {
+    enemy.triedDirs.push(enemy.dir);
+  }
+
   if (stuck || needDirChange) {
     enemy.aiDirTimer = 0;
     enemy.aiDirInterval = 1000 + Math.random() * 2000;
-    if (player && player.alive && Math.random() < 0.4) {
+    // 敌人越少追得越紧
+    const remaining = TOTAL_ENEMIES - enemiesKilled;
+    const chaseChance = Math.min(0.8, 0.3 + (1 - remaining / TOTAL_ENEMIES) * 0.5);
+    if (player && player.alive && Math.random() < chaseChance) {
       const dx = player.x - enemy.x;
       const dy = player.y - enemy.y;
       if (Math.abs(dx) > Math.abs(dy)) {
@@ -543,10 +573,17 @@ function updateEnemyAI(enemy, dt) {
       } else {
         enemy.dir = dy > 0 ? DIR.DOWN : DIR.UP;
       }
+      enemy.triedDirs = [];
     } else {
-      const dirs = [DIR.UP, DIR.RIGHT, DIR.DOWN, DIR.LEFT].filter(d => d !== enemy.dir);
-      enemy.dir = dirs[Math.floor(Math.random() * dirs.length)];
+      // 排除已试过的方向，避免反复撞同一面墙
+      const allDirs = [DIR.UP, DIR.RIGHT, DIR.DOWN, DIR.LEFT];
+      let available = allDirs.filter(d => !enemy.triedDirs.includes(d));
+      if (available.length === 0) available = allDirs;
+      enemy.dir = available[Math.floor(Math.random() * available.length)];
+      enemy.triedDirs = [enemy.dir];
     }
+  } else {
+    enemy.triedDirs = [];
   }
 
   // 射击
@@ -603,19 +640,17 @@ function renderMapCache() {
 function drawMap() {
   if (mapDirty) renderMapCache();
   ctx.drawImage(mapCanvas, 0, 0);
-  // 水面动画单独画（每帧变化）
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      if (map[r][c] === TILE_WATER) {
-        const x = c * TILE;
-        const y = r * TILE;
-        ctx.fillStyle = THEME.water.base;
-        ctx.fillRect(x, y, TILE, TILE);
-        ctx.fillStyle = THEME.water.wave;
-        const offset = (Date.now() / 500) % 4;
-        for (let i = 0; i < 3; i++) {
-          ctx.fillRect(x, y + (i * 10 + offset) % TILE, TILE, 3);
-        }
+  // 水面动画单独画（仅遍历水面瓦片）
+  if (waterTiles.length > 0) {
+    const offset = (Date.now() / 500) % 4;
+    for (const w of waterTiles) {
+      const x = w.c * TILE;
+      const y = w.r * TILE;
+      ctx.fillStyle = THEME.water.base;
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = THEME.water.wave;
+      for (let i = 0; i < 3; i++) {
+        ctx.fillRect(x, y + (i * 10 + offset) % TILE, TILE, 3);
       }
     }
   }
