@@ -97,6 +97,9 @@ const ENEMY_SHOOT_INTERVAL = 1500;
 const MAX_ENEMIES = 4;
 const TOTAL_ENEMIES = 20;
 const RESPAWN_DELAY = 2000;
+const MAX_PLAYER_BULLETS = 2;
+const INVINCIBLE_TIME = 2000;
+const MAX_DT = 50;
 
 const DIR = { UP: 0, RIGHT: 1, DOWN: 2, LEFT: 3 };
 const DX = [0, 1, 0, -1];
@@ -162,15 +165,15 @@ function initMap() {
   map[ROWS - 2][COLS / 2] = TILE_BASE;
   map[ROWS - 1][COLS / 2 - 1] = TILE_BASE;
   map[ROWS - 1][COLS / 2] = TILE_BASE;
-  // 基地周围砖墙保护
+  // 基地周围砖墙保护（完整U形）
   const bx = COLS / 2 - 1;
-  const by = ROWS - 3;
-  for (let r = by; r < by + 1; r++) {
-    for (let c = bx - 1; c <= bx + 2; c++) {
-      if (map[r] && map[r][c] === TILE_EMPTY) map[r][c] = TILE_BRICK;
-    }
+  const by = ROWS - 4;
+  // 顶部一排
+  for (let c = bx - 1; c <= bx + 2; c++) {
+    if (map[by] && map[by][c] === TILE_EMPTY) map[by][c] = TILE_BRICK;
   }
-  for (let r = by + 1; r < by + 3; r++) {
+  // 两侧竖排
+  for (let r = by + 1; r < ROWS - 1; r++) {
     if (map[r]) {
       if (map[r][bx - 1] === TILE_EMPTY) map[r][bx - 1] = TILE_BRICK;
       if (map[r][bx + 2] === TILE_EMPTY) map[r][bx + 2] = TILE_BRICK;
@@ -248,6 +251,7 @@ class Tank {
     this.speed = isPlayer ? PLAYER_SPEED : ENEMY_SPEED;
     this.cooldown = 0;
     this.shootInterval = isPlayer ? 300 : ENEMY_SHOOT_INTERVAL;
+    this.invincible = 0;
     // AI
     this.aiDirTimer = 0;
     this.aiDirInterval = 2000 + Math.random() * 2000;
@@ -281,6 +285,10 @@ class Tank {
 
   shoot() {
     if (this.cooldown > 0) return;
+    if (this.isPlayer) {
+      const activeBullets = bullets.filter(b => b.alive && b.owner === 'player');
+      if (activeBullets.length >= MAX_PLAYER_BULLETS) return;
+    }
     this.cooldown = this.shootInterval;
     const bx = this.x + DX[this.dir] * (TANK_SIZE / 2 + 2);
     const by = this.y + DY[this.dir] * (TANK_SIZE / 2 + 2);
@@ -294,10 +302,13 @@ class Tank {
 
   update(dt) {
     if (this.cooldown > 0) this.cooldown -= dt;
+    if (this.invincible > 0) this.invincible -= dt;
   }
 
   draw() {
     if (!this.alive) return;
+    // 无敌闪烁
+    if (this.invincible > 0 && Math.floor(this.invincible / 100) % 2 === 0) return;
     const x = this.x - TANK_SIZE / 2;
     const y = this.y - TANK_SIZE / 2;
     ctx.save();
@@ -432,7 +443,7 @@ function updateBullets() {
         }
       }
     } else {
-      if (player && player.alive) {
+      if (player && player.alive && player.invincible <= 0) {
         if (rectOverlap(b.x - BULLET_SIZE / 2, b.y - BULLET_SIZE / 2, BULLET_SIZE, BULLET_SIZE,
           player.x - TANK_SIZE / 2, player.y - TANK_SIZE / 2, TANK_SIZE, TANK_SIZE)) {
           b.alive = false;
@@ -463,8 +474,9 @@ function updateBullets() {
 }
 
 function respawnPlayer() {
-  const sp = tileCenter(COLS / 2 - 1, ROWS - 2);
+  const sp = tileCenter(COLS / 2, ROWS - 5);
   player = new Tank(sp.x, sp.y, DIR.UP, true);
+  player.invincible = INVINCIBLE_TIME;
 }
 
 // ========== 敌人 AI ==========
@@ -473,10 +485,17 @@ function updateEnemyAI(enemy, dt) {
   enemy.update(dt);
 
   enemy.aiDirTimer += dt;
-  if (enemy.aiDirTimer >= enemy.aiDirInterval) {
+  const needDirChange = enemy.aiDirTimer >= enemy.aiDirInterval;
+
+  // 碰墙检测：尝试移动，如果移动失败则立刻换方向
+  const oldX = enemy.x;
+  const oldY = enemy.y;
+  enemy.move(enemy.dir);
+  const stuck = (enemy.x === oldX && enemy.y === oldY);
+
+  if (stuck || needDirChange) {
     enemy.aiDirTimer = 0;
     enemy.aiDirInterval = 1000 + Math.random() * 2000;
-    // 有一定概率朝向玩家
     if (player && player.alive && Math.random() < 0.4) {
       const dx = player.x - enemy.x;
       const dy = player.y - enemy.y;
@@ -486,11 +505,10 @@ function updateEnemyAI(enemy, dt) {
         enemy.dir = dy > 0 ? DIR.DOWN : DIR.UP;
       }
     } else {
-      enemy.dir = Math.floor(Math.random() * 4);
+      const dirs = [DIR.UP, DIR.RIGHT, DIR.DOWN, DIR.LEFT].filter(d => d !== enemy.dir);
+      enemy.dir = dirs[Math.floor(Math.random() * dirs.length)];
     }
   }
-
-  enemy.move(enemy.dir);
 
   // 射击
   enemy.shoot();
@@ -593,7 +611,7 @@ function initGame() {
 // ========== 主循环 ==========
 let lastTime = 0;
 function gameLoop(timestamp) {
-  const dt = lastTime ? timestamp - lastTime : 16;
+  const dt = lastTime ? Math.min(timestamp - lastTime, MAX_DT) : 16;
   lastTime = timestamp;
 
   if (gameState === 'playing') {
